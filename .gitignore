@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.vscode/
+
+.env
+.env.*
+
+certs/*.key
+certs/*.crt
+
+06_Ket_qua_thuc_nghiem/
+01_Tai_lieu_nghien_cuu/*.pdf
+
+*.zip
+*.tar.gz

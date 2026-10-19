@@ -1,0 +1,67 @@
+name: DT032 HTTPS Security Gate
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  local-https-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dt032.txt
+          python -m playwright install --with-deps chromium
+      - name: Generate ephemeral certificate for local lab
+        run: |
+          mkdir -p certs
+          openssl req -x509 -newkey rsa:2048 -sha256 -noenc -days 2 \
+            -keyout certs/localhost.key -out certs/localhost.crt \
+            -subj '/CN=localhost' \
+            -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+      - name: Start local HTTPS test applications
+        run: |
+          docker compose up -d
+          docker compose ps
+      - name: Wait for local services
+        run: |
+          for i in $(seq 1 40); do
+            if curl -sS -o /dev/null http://127.0.0.1:5080/ && \
+               curl -sS -o /dev/null http://127.0.0.1:5180/; then
+              echo 'Lab ready'; exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs --tail=100
+          exit 1
+      - name: Run security test suite
+        run: |
+          python -m pytest tests/test_https_lab_smoke.py tests/test_mixed_content.py \
+            tests/test_security_policy_matrix.py -v \
+            --junitxml=06_Ket_qua_thuc_nghiem/ci_results.xml \
+            --html=06_Ket_qua_thuc_nghiem/ci_report.html --self-contained-html
+      - name: Evaluate three repeated runs and enforce gate
+        run: python -m tools.dt032_audit --repeat 3 --gate
+      - name: Build self-contained experiment HTML
+        if: success()
+        run: python -m tools.make_experiment_report
+      - name: Save environment manifest
+        if: always()
+        run: python -m tools.record_manifest
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dt032-security-reports
+          path: 06_Ket_qua_thuc_nghiem/
+      - name: Stop lab
+        if: always()
+        run: docker compose down
